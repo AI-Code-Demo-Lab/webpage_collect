@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  python_dev:
+    build: ..
+    container_name: python_dev
+    ports:
+      - "2222:22"  # 映射SSH端口到主机的2222端口
+    volumes:
+      - ./workspace:/workspace  # 将本地workspace目录挂载到容器内的/workspace
+    restart: unless-stopped 
