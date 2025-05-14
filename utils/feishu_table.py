@@ -19,7 +19,7 @@ class FeishuTable:
         self._tenant_access_token = None
         self.app_token = app_token
         self.table_id = table_id
-        
+
     def get_tenant_access_token(self) -> str:
         """
         获取租户访问令牌
@@ -27,22 +27,22 @@ class FeishuTable:
         """
         if self._tenant_access_token:
             return self._tenant_access_token
-            
+
         url = f"{self.base_url}/auth/v3/tenant_access_token/internal"
         payload = {
             "app_id": self.app_id,
             "app_secret": self.app_secret
         }
-        
+
         response = requests.post(url, json=payload)
         result = response.json()
-        
+
         if result.get("code") == 0:
             self._tenant_access_token = result.get("tenant_access_token")
             return self._tenant_access_token
         else:
             raise Exception(f"获取租户访问令牌失败: {result}")
-    
+
     def get_headers(self) -> Dict[str, str]:
         """
         获取请求头
@@ -52,21 +52,37 @@ class FeishuTable:
             "Authorization": f"Bearer {self.get_tenant_access_token()}",
             "Content-Type": "application/json"
         }
-    
+
+    def _request(self, method: str, url: str, data: Dict = None, params: Dict = None) -> Dict:
+        payload = {
+            'method': method.upper(),
+            'url': url,
+            'json': data,
+            'params': params,
+        }
+
+        response = requests.request(**payload, headers=self.get_headers())
+        result = response.json()
+        if result.get("code") == 0:
+            return result
+
+        self._tenant_access_token = None
+        response = requests.request(**payload, headers=self.get_headers())
+        return response.json()
+
     def get_app_info(self) -> Dict:
         """
         获取多维表格应用信息
         :return: 应用信息
         """
         url = f"{self.base_url}/bitable/v1/apps/{self.app_token}"
-        response = requests.get(url, headers=self.get_headers())
-        result = response.json()
-        
+        result = self._request('get', url)
+
         if result.get("code") == 0:
             return result.get("data", {})
         else:
             raise Exception(f"获取多维表格应用信息失败: {result}")
-    
+
     def get_table_meta(self) -> Dict:
         """
         获取数据表元数据
@@ -75,14 +91,13 @@ class FeishuTable:
         :return: 数据表元数据
         """
         url = f"{self.base_url}/bitable/v1/apps/{self.app_token}/tables/{self.table_id}"
-        response = requests.get(url, headers=self.get_headers())
-        result = response.json()
-        
+        result = self._request('get', url)
+
         if result.get("code") == 0:
             return result.get("data", {})
         else:
             raise Exception(f"获取数据表元数据失败: {result}")
-    
+
     def get_fields(self, app_token: str, table_id: str) -> List[Dict]:
         """
         获取数据表字段列表
@@ -91,14 +106,13 @@ class FeishuTable:
         :return: 字段列表
         """
         url = f"{self.base_url}/bitable/v1/apps/{app_token}/tables/{table_id}/fields"
-        response = requests.get(url, headers=self.get_headers())
-        result = response.json()
-        
+        result = self._request('get', url)
+
         if result.get("code") == 0:
             return result.get("data", {}).get("items", [])
         else:
             raise Exception(f"获取字段列表失败: {result}")
-    
+
     def create_field(self, field_name: str, field_type: str,
                      field_property: Dict = None) -> Dict:
         """
@@ -113,18 +127,16 @@ class FeishuTable:
             "field_name": field_name,
             "type": field_type
         }
-        
+
         if field_property:
             payload["property"] = field_property
-            
-        response = requests.post(url, headers=self.get_headers(), json=payload)
-        result = response.json()
-        
+
+        result = self._request('post', url, payload)
         if result.get("code") == 0:
             return result.get("data", {})
         else:
             raise Exception(f"创建字段失败: {result}")
-    
+
     def update_field(self, field_id: str, field_name: str, field_type: int,
                      field_property: Dict = None) -> Dict:
         """
@@ -144,15 +156,13 @@ class FeishuTable:
 
         if field_property:
             payload["property"] = field_property
-            
-        response = requests.put(url, headers=self.get_headers(), json=payload)
-        result = response.json()
-        
+
+        result = self._request('put', url, payload)
         if result.get("code") == 0:
             return result.get("data", {})
         else:
             raise Exception(f"更新字段失败: {result}")
-    
+
     def add_option_values(self, view_id, field_id: str, field_name: str, option_values: List[str]) -> Dict:
         """
         为选择类型字段添加选项
@@ -172,14 +182,13 @@ class FeishuTable:
         # 获取现有选项
         current_options = field.get("property", {}).get("options", [])
         current_options.extend([{'name': v} for v in option_values])
-        print(current_options)
-                
+
         # 更新字段属性
         return self.update_field(
             field_id, field_name, field['type'],
             field_property={"options": current_options}
         )
-    
+
     def get_records(self, view_id: str = None, page_size: int = 100,
                     page_token: str = None) -> Dict:
         """
@@ -191,21 +200,19 @@ class FeishuTable:
         """
         url = f"{self.base_url}/bitable/v1/apps/{self.app_token}/tables/{self.table_id}/records"
         params = {"page_size": page_size}
-        
+
         if view_id:
             params["view_id"] = view_id
-            
+
         if page_token:
             params["page_token"] = page_token
-            
-        response = requests.get(url, headers=self.get_headers(), params=params)
-        result = response.json()
-        
+
+        result = self._request('get', url, params=params)
         if result.get("code") == 0:
             return result.get("data", {})
         else:
             raise Exception(f"获取记录列表失败: {result}")
-    
+
     def create_record(self, fields: Dict[str, Any]) -> Dict:
         """
         创建记录
@@ -216,15 +223,13 @@ class FeishuTable:
         payload = {
             "fields": fields
         }
-        
-        response = requests.post(url, headers=self.get_headers(), json=payload)
-        result = response.json()
-        
+
+        result = self._request('post', url, payload)
         if result.get("code") == 0:
             return result.get("data", {})
         else:
             raise Exception(f"创建记录失败: {result}")
-    
+
     def batch_create_records(self, records: List[Dict[str, Any]]) -> Dict:
         """
         批量创建记录
@@ -236,15 +241,13 @@ class FeishuTable:
         payload = {
             "records": records_data
         }
-        
-        response = requests.post(url, headers=self.get_headers(), json=payload)
-        result = response.json()
-        
+
+        result = self._request('post', url, payload)
         if result.get("code") == 0:
             return result.get("data", {})
         else:
             raise Exception(f"批量创建记录失败: {result}")
-    
+
     def update_record(self, record_id: str, fields: Dict[str, Any]) -> Dict:
         """
         更新记录
@@ -256,15 +259,13 @@ class FeishuTable:
         payload = {
             "fields": fields
         }
-        
-        response = requests.put(url, headers=self.get_headers(), json=payload)
-        result = response.json()
-        
+
+        result = self._request('put', url, payload)
         if result.get("code") == 0:
             return result.get("data", {})
         else:
             raise Exception(f"更新记录失败: {result}")
-    
+
     def delete_record(self, record_id: str) -> bool:
         """
         删除记录
@@ -272,10 +273,7 @@ class FeishuTable:
         :return: 是否成功
         """
         url = f"{self.base_url}/bitable/v1/apps/{self.app_token}/tables/{self.table_id}/records/{record_id}"
-        
-        response = requests.delete(url, headers=self.get_headers())
-        result = response.json()
-        
+        result = self._request('delete', url)
         if result.get("code") == 0:
             return True
         else:
@@ -284,7 +282,7 @@ class FeishuTable:
     def get_field(self, view_id: str, field_name) -> Dict:
         fields = self.list_fields(view_id)
         return next((f for f in fields["items"] if f["field_name"] == field_name), {})
-    
+
     def list_fields(self, view_id: str = None,  page_size: int = 200,
                     page_token: str = None) -> Dict:
         """
@@ -296,16 +294,14 @@ class FeishuTable:
         """
         url = f"{self.base_url}/bitable/v1/apps/{self.app_token}/tables/{self.table_id}/fields"
         params = {"page_size": page_size}
-        
+
         if view_id:
             params["view_id"] = view_id
-            
+
         if page_token:
             params["page_token"] = page_token
-            
-        response = requests.get(url, headers=self.get_headers(), params=params)
-        result = response.json()
-        
+
+        result = self._request('get', url, params=params)
         if result.get("code") == 0:
             return result.get("data", {})
         else:
@@ -315,7 +311,7 @@ class FeishuTable:
 if __name__ == "__main__":
     # 初始化飞书表格操作类
     feishu = FeishuTable('G1rDbcKyNaL1bAso3l8cImdYntX', 'tblpA7YT2FsTls21')
-    
+
     # 示例：添加多选选项
     # try:
     #     # 首先需要获取字段ID
@@ -374,7 +370,7 @@ if __name__ == "__main__":
     #     import traceback
     #     traceback.print_exc()
     #     print(f"添加记录失败: {e}")
-    
+
     # # 示例：批量添加记录
     # try:
     #     feishu.batch_create_records(
